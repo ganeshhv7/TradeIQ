@@ -1,0 +1,152 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import os
+from pathlib import Path
+import joblib
+
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+import xgboost as xgb
+
+sns.set(style="whitegrid", palette="muted")
+
+# Ensure project root structure is respected
+ROOT = Path.cwd().resolve()
+if ROOT.name == "notebooks":
+    ROOT = ROOT.parent
+
+# Load pre-engineered features for all stocks.
+stock_files = ["reliance_feat.csv", "tcs_feat.csv", "infosys_feat.csv", "hdfcbank_feat.csv"]
+df_list = []
+for file in stock_files:
+    temp_df = pd.read_csv(ROOT / "data" / "features" / file, index_col="Date", parse_dates=True)
+    temp_df['Ticker'] = file.split('_')[0].upper()
+    df_list.append(temp_df)
+reliance = pd.concat(df_list)
+reliance.sort_index(inplace=True)
+
+print("Combined Global data loaded. Shape:", reliance.shape)
+
+
+# Explicitly select only feature columns, excluding Leakage columns (Targets) and Non-Numeric
+drop_cols = ["Close", "Ticker"]
+feature_cols = [c for c in reliance.columns if c not in drop_cols and not c.startswith("Target_")]
+
+print("Number of training features:", len(feature_cols))
+
+X_master = reliance[feature_cols].copy()
+
+# Keep a separate scaler per horizon to avoid fitting on future data.
+scaler = StandardScaler()
+best_scalers_dict = {}
+
+
+horizons = [1, 7, 15]
+all_results = []
+best_models_dict = {}
+
+for n in horizons:
+    print(f"\n--- Training for {n}-Day Horizon ---")
+    
+    # Create Target based on percentage return to solve extrapolation failure
+    reliance[f"Target_{n}"] = (reliance["Close"].shift(-n) - reliance["Close"]) / reliance["Close"]
+    
+    # Drop NaNs ONLY for this specific horizon
+    valid_data = reliance.dropna(subset=[f"Target_{n}"])
+    
+    X = valid_data[feature_cols]
+    y = valid_data[f"Target_{n}"]
+    prices = valid_data["Close"]
+    
+    # Temporal Split
+    X_train, X_test, y_train, y_test = train_test_split(X, y, shuffle=False, test_size=0.2)
+    _, _, _, prices_test = train_test_split(X, prices, shuffle=False, test_size=0.2)
+    
+    scaler = StandardScaler()
+    scaler.fit(X_train)
+    X_train_scaled = scaler.transform(X_train)
+    X_test_scaled  = scaler.transform(X_test)
+    
+    models = {
+        "LinearRegression": LinearRegression(),
+        "RandomForest": RandomForestRegressor(n_estimators=100, random_state=42),
+        "GradientBoosting": GradientBoostingRegressor(random_state=42),
+        "XGBoost": xgb.XGBRegressor(objective="reg:squarederror", n_estimators=150, learning_rate=0.05, max_depth=5, random_state=42)
+    }
+    
+    best_rmse = float('inf')
+    best_model_name = None
+    best_model_obj = None
+    
+    for name, model in models.items():
+        model.fit(X_train_scaled, y_train)
+        preds = model.predict(X_test_scaled)
+        # Convert predicted returns back to absolute prices for RMSE/MAE evaluation
+        curr_price = prices_test.values
+        preds_price = curr_price * (1 + preds)
+        actual_price = curr_price * (1 + y_test.values)
+        rmse = np.sqrt(mean_squared_error(actual_price, preds_price))
+        
+        # Record for comparison df
+        all_results.append({
+            "Horizon": f"{n}-Day",
+            "Model": name,
+            "RMSE": rmse,
+            "MAE": mean_absolute_error(actual_price, preds_price),
+            "R2": r2_score(actual_price, preds_price)
+        })
+        
+        if rmse < best_rmse:
+            best_rmse = rmse
+            best_model_name = name
+            best_model_obj = model
+            
+    print(f"Best Model for {n}-Day: {best_model_name} (RMSE: {best_rmse:.2f})")
+    best_models_dict[n] = best_model_obj
+    best_scalers_dict[n] = scaler
+
+
+results_df = pd.DataFrame(all_results)
+
+plt.figure(figsize=(12,6))
+sns.barplot(x="Horizon", y="RMSE", hue="Model", data=results_df)
+plt.title("Model Performance (RMSE) Across Forecast Horizons")
+plt.ylabel("Root Mean Squared Error (Lower is better)")
+plt.legend()
+plt.show()
+
+os.makedirs("models", exist_ok=True)
+
+joblib.dump(best_models_dict, "models/models.pkl")
+joblib.dump(scaler, "models/scaler.pkl")
+joblib.dump(feature_cols, "models/features.pkl")
+
+print("Success! Saved `models.pkl`, `scaler.pkl`, and `features.pkl` to the models directory.")
+
+valid_data = reliance.dropna(subset=["Target_1"])
+X = valid_data[feature_cols]
+y = valid_data["Target_1"]
+prices = valid_data["Close"]
+_, X_test, _, y_test = train_test_split(X, y, shuffle=False, test_size=0.2)
+_, _, _, prices_test = train_test_split(X, prices, shuffle=False, test_size=0.2)
+
+best_1d_model = best_models_dict[1]
+best_1d_scaler = best_scalers_dict[1]
+X_test_scaled = best_1d_scaler.transform(X_test)
+preds_1d = best_1d_model.predict(X_test_scaled)
+
+plt.figure(figsize=(12,5))
+curr_price = prices_test.values
+preds_1d_price = curr_price * (1 + preds_1d)
+actual_1d_price = curr_price * (1 + y_test.values)
+plt.plot(actual_1d_price, label="Actual", alpha=0.9)
+plt.plot(preds_1d_price, label="Predicted (Best 1-Day Model)", alpha=0.7)
+plt.title("Best 1-Day Model Predictions vs Actual (Global Validation Set)")
+plt.legend()
+plt.show()
+

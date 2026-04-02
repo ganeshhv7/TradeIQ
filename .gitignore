@@ -1,0 +1,21 @@
+# Environments
+venv/
+env/
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# VS Code
+.vscode/
+
+# Ignore old/test scripts
+fix_indent.py
+patch_notebook.py
+update_notebook.py
