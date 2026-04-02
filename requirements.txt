@@ -11,3 +11,5 @@ joblib
 fastapi
 uvicorn
 pydantic
+newsapi-python
+textblob
