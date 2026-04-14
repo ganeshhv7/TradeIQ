@@ -4,7 +4,7 @@ TradeIQ is an end-to-end Machine Learning stock prediction and decision support 
 
 ## 🚀 Key Features
 
-*   **Multi-Stock "Global" Training:** Uses a consolidated dataset of major Indian stocks (Reliance, TCS, Infosys, and HDFC Bank) to train a robust 'Maha-Model' capable of uncovering generalized market movements.
+*   **Stock-Specific Modeling:** Uses advanced machine learning techniques to train independent, specialized models for major Indian stocks (Reliance, TCS, Infosys, and HDFC Bank) ensuring high predictive accuracy for each asset's unique market movements.
 *   **Multi-Horizon Predictions:** Forecasts stock prices and percentage returns exactly 1-Day, 7-Days, and 15-Days into the future.
 *   **Dynamic Decision Support System:** Translates price momentum, RSI values, and news sentiment into a clear risk-managed signal (e.g. `🟢 STRONG BUY` or `🔴 STRONG SELL`).
 *   **Comprehensive Data Processing:** Combines Historical Prices, over 40+ Technical Indicators (RSI, MACD, ATR, Bollinger Bands), and Fundamental Metrics (P/E ratio, Market Cap) using `yfinance`.
@@ -16,11 +16,15 @@ The project leverages a decoupled architecture, separating the core Data Science
 
 ```text
 TradeIQ/
+├── start_tradeiq.bat  # Unified startup script for backend and frontend
 ├── data/              # Stores raw and feature-engineered stock datasets
 ├── notebooks/         # Full Data Science Pipeline
 │   ├── 01_EDA.ipynb
 │   ├── 02_Feature_Engineering.ipynb
-│   └── 03_Model_Training.ipynb (Global Model Training Pipeline)
+│   └── 03_StockSpecific_Model_Training.ipynb (Stock-specific model training)
+├── scripts/           # Automation scripts
+│   ├── download_data.py
+│   └── rebuild_all.py # End-to-end retraining pipeline
 ├── src/               # Modular logic scripts utilized by APIs & Scripts
 │   ├── feature_engineering.py
 │   └── sentiment.py
@@ -28,7 +32,13 @@ TradeIQ/
 │   └── app.py         # Prediction microservice
 ├── app/               # Streamlit Frontend UI
 │   └── streamlit_app.py 
-└── models/            # Serialized XGBoost models & target scalers (.pkl)
+├── tests/             # Pytest testing suite
+│   └── test_api.py
+└── models/            # Stock-specific XGBoost models & scalers (.pkl)
+    ├── HDFCBANK/
+    ├── INFY/
+    ├── RELIANCE/
+    └── TCS/
 ```
 
 ## 🛠️ Technology Stack
