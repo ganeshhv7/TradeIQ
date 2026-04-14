@@ -289,13 +289,29 @@ if global_dfs:
                 st.subheader("🏢 Company Fundamental Data")
                 try:
                     stock_info = yf.Ticker(stock_map[selected_stock]).info
+                    # yfinance might return an empty dict if blocked
+                    if not stock_info:
+                        raise ValueError("Empty info from Yahoo Finance")
+                        
                     f1, f2, f3, f4 = st.columns(4)
                     with f1: st.metric("P/E Ratio", f"{stock_info.get('trailingPE', 'N/A')}")
                     with f2: st.metric("EPS", f"₹ {stock_info.get('trailingEps', 'N/A')}")
-                    with f3: st.metric("Market Cap", f"{stock_info.get('marketCap', 0)/1e12:.2f} T")
-                    with f4: st.metric("ROE", f"{stock_info.get('returnOnEquity', 0)*100:.1f}%")
-                except:
-                    st.warning("Could not fetch fundamental data. Using technical metrics only.")
+                    
+                    market_cap = stock_info.get('marketCap')
+                    market_cap_str = f"₹ {market_cap/1e12:.2f} T" if market_cap else "N/A"
+                    with f3: st.metric("Market Cap", market_cap_str)
+                    
+                    roe = stock_info.get('returnOnEquity')
+                    roe_str = f"{roe*100:.1f}%" if roe else "N/A"
+                    with f4: st.metric("ROE", roe_str)
+                except Exception as e:
+                    # Yahoo Finance often blocks fundamental data requests from cloud IPs
+                    # Gracefully show N/A without alarming the user
+                    f1, f2, f3, f4 = st.columns(4)
+                    with f1: st.metric("P/E Ratio", "N/A")
+                    with f2: st.metric("EPS", "N/A")
+                    with f3: st.metric("Market Cap", "N/A")
+                    with f4: st.metric("ROE", "N/A")
 
                 st.subheader("⚠️ Professional Risk Analysis")
                 risk_col1, risk_col2 = st.columns(2)
