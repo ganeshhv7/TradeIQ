@@ -13,6 +13,20 @@ from plotly.subplots import make_subplots
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(base_dir)
 
+import subprocess
+import time
+
+API_URL = "http://127.0.0.1:8000/predict"
+
+# Auto-start the FastAPI backend if it's not running (For Streamlit Cloud deployments)
+try:
+    requests.get("http://127.0.0.1:8000/")
+except requests.exceptions.ConnectionError:
+    st.toast("Booting up the highly-advanced TradeIQ Backend Engine... 🚀", icon="⚙️")
+    subprocess.Popen([sys.executable, "-m", "uvicorn", "api.app:app", "--host", "127.0.0.1", "--port", "8000", "--log-level", "warning"])
+    time.sleep(3) # Give Uvicorn a few seconds to initialize
+
+
 from src.feature_engineering import create_features
 from src.sentiment import get_news_sentiment
 
@@ -33,7 +47,7 @@ stock_map = {
 # =========================
 # API ENDPOINT (FASTAPI DECOUPLED)
 # =========================
-API_URL = "http://127.0.0.1:8000/predict"
+# API_URL is defined at the top
 
 EXPECTED_PRICE_COLUMNS = ["Open", "High", "Low", "Close", "Adj Close", "Volume"]
 
