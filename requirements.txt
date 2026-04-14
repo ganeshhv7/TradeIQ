@@ -13,3 +13,4 @@ uvicorn
 pydantic
 newsapi-python
 textblob
+requests

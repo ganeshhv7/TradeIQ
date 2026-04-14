@@ -13,19 +13,26 @@ sys.path.append(base_dir)
 sys.path.append(os.path.join(base_dir, "src"))
 
 from src.feature_engineering import create_features
-
+from src.sentiment import get_news_sentiment
 app = FastAPI(title="TradeIQ Prediction API 🚀", version="2.0.0")
 
 # =========================
-# LOAD MODELS (BUG 3 FIXED)
+# LOAD MODELS (MULTI-STOCK)
 # =========================
-try:
-    models = joblib.load(os.path.join(base_dir, "models", "models.pkl"))
-    scaler = joblib.load(os.path.join(base_dir, "models", "scaler.pkl"))
-    feature_names = joblib.load(os.path.join(base_dir, "models", "features.pkl"))
-except Exception as e:
-    print(f"Error loading models: {e}")
-    models, scaler, feature_names = None, None, None
+STOCK_NAMES = ["HDFCBANK", "INFY", "RELIANCE", "TCS"]
+model_store = {}
+
+for stock in STOCK_NAMES:
+    try:
+        stock_dir = os.path.join(base_dir, "models", stock)
+        model_store[stock] = {
+            "models": joblib.load(os.path.join(stock_dir, "models.pkl")),
+            "scaler": joblib.load(os.path.join(stock_dir, "scaler.pkl")),
+            "features": joblib.load(os.path.join(stock_dir, "features.pkl"))
+        }
+        print(f"Loaded models for {stock}")
+    except Exception as e:
+        print(f"Error loading models for {stock}: {e}")
 
 # =========================
 # SCHEMAS (INPUT VALIDATION)
@@ -63,15 +70,25 @@ def predict(request: PredictRequest):
     Input: Ticker symbol (e.g., RELIANCE.NS)
     Output: Multi-horizon predicted prices
     """
-    if models is None:
+    if not model_store:
         raise HTTPException(status_code=500, detail="Models not loaded properly.")
     
+    stock_name = request.ticker.split('.')[0]
+    if stock_name == "INFOSYS": stock_name = "INFY"
+    if stock_name not in model_store:
+        raise HTTPException(status_code=400, detail=f"Stock {stock_name} not supported or models failed to load.")
+        
+    store = model_store[stock_name]
+    models_for_stock = store["models"]
+    scaler_for_stock = store["scaler"]
+    features_for_stock = store["features"]
+
     try:
         # =========================
         # FETCH HISTORY (BUG 1 FIXED)
         # =========================
-        # Need at least 60 days to compute 50-day moving averages safely
-        df_raw = yf.download(request.ticker, period="6mo", interval="1d")
+        # Need at least 200 days to compute 200-day moving averages safely
+        df_raw = yf.download(request.ticker, period="2y", interval="1d")
         if df_raw.empty:
             raise ValueError(f"No data returned for ticker: {request.ticker}")
         
@@ -87,28 +104,70 @@ def predict(request: PredictRequest):
             raise ValueError("Feature engineering resulted in an empty dataset. Try fetching more historical data.")
 
         # =========================
-        # PREDICTION ENGINE (BUG 2 FIXED)
+        # PREDICTION ENGINE (MULTI-MODEL)
         # =========================
         latest = df_feat.iloc[-1:]
-        X = latest[feature_names] # Ensures exact column ordering
+        X = latest[features_for_stock] # Ensures exact column ordering
         
-        X_scaled = scaler.transform(X)
+        X_scaled = scaler_for_stock.transform(X)
         
-        pred_1_ret = models[1].predict(X_scaled)[0]
-        pred_7_ret = models[7].predict(X_scaled)[0]
-        pred_15_ret = models[15].predict(X_scaled)[0]
+        pred_1_ret = models_for_stock[1].predict(X_scaled)[0]
+        pred_7_ret = models_for_stock[7].predict(X_scaled)[0]
+        pred_15_ret = models_for_stock[15].predict(X_scaled)[0]
+
         
         current_close = float(df['Close'].iloc[-1])
         
+        pred_1 = current_close * (1 + float(pred_1_ret))
+        pred_7 = current_close * (1 + float(pred_7_ret))
+        pred_15 = current_close * (1 + float(pred_15_ret))
+
+        # TradeIQ Decision Logic
+        sentiment_score, _ = get_news_sentiment(stock_name)
+        change_pct = float(pred_1_ret) * 100
+        rsi_val = float(df_feat['RSI_14'].iloc[-1])
+        
+        if change_pct > 1.5 and rsi_val < 65 and sentiment_score > 0.05:
+            signal = "STRONG BUY"
+        elif change_pct > 0 and rsi_val < 70:
+            signal = "BUY"
+        elif change_pct < -1.5 and rsi_val > 35 and sentiment_score < -0.05:
+            signal = "STRONG SELL"
+        else:
+            signal = "HOLD"
+
+        # Extract Feature Importances
+        feature_importances = {}
+        try:
+            model = models_for_stock[1]
+            if hasattr(model, 'feature_importances_'):
+                importances = model.feature_importances_
+                feat_df = pd.DataFrame({"Feature": features_for_stock, "Importance": importances})
+                feat_df = feat_df.sort_values("Importance", ascending=False).head(10)
+                feature_importances = {k: float(v) for k, v in zip(feat_df["Feature"], feat_df["Importance"])}
+            elif hasattr(model, 'coef_'):
+                importances = abs(model.coef_)
+                feat_df = pd.DataFrame({"Feature": features_for_stock, "Importance": importances})
+                feat_df = feat_df.sort_values("Importance", ascending=False).head(10)
+                feature_importances = {k: float(v) for k, v in zip(feat_df["Feature"], feat_df["Importance"])}
+        except Exception as e:
+            pass
+
         return {
             "status": "success",
             "ticker": request.ticker,
+            "signal": signal,
+            "metrics": {
+                "sentiment_score": float(sentiment_score),
+                "rsi": rsi_val,
+                "projected_change_pct": float(change_pct)
+            },
             "predictions": {
-                "1_day": current_close * (1 + float(pred_1_ret)),
-                "7_days": current_close * (1 + float(pred_7_ret)),
-                "15_days": current_close * (1 + float(pred_15_ret))
-            }
+                "1_day": pred_1,
+                "7_days": pred_7,
+                "15_days": pred_15
+            },
+            "feature_importance": feature_importances
         }
-        
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

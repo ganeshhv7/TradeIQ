@@ -15,18 +15,20 @@ def get_news_sentiment(query):
         )
 
         sentiments = []
+        headlines = []
 
         for article in articles["articles"]:
             title = article["title"]
+            headlines.append(title)
 
             polarity = TextBlob(title).sentiment.polarity
             sentiments.append(polarity)
 
         if len(sentiments) == 0:
-            return 0
+            return 0, []
 
-        return sum(sentiments) / len(sentiments)
+        return sum(sentiments) / len(sentiments), headlines[:3]
 
     except Exception as e:
         print("Error:", e)
-        return 0
+        return 0, []

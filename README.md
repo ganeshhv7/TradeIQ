@@ -60,3 +60,28 @@ TradeIQ/
 
 ## 🛡️ Risk Disclaimer
 *TradeIQ is purely an analytical project providing simulated technical insights. It is not financial advice. Always consult a certified financial planner before undertaking any trades in the real market.*
+
+## ⬆️ How to Update this Project on GitHub
+
+To push the latest changes of this project to GitHub, follow these steps in your terminal:
+
+1. **Check the current status** of your files:
+   ```bash
+   git status
+   ```
+
+2. **Stage all changes** (this includes modified files like `requirements.txt` and `README.md`):
+   ```bash
+   git add .
+   ```
+
+3. **Commit the changes** with a descriptive message:
+   ```bash
+   git commit -m "Updated requirements.txt and README.md"
+   ```
+
+4. **Push the code** to your remote repository branch (assuming it is `main` or `master`):
+   ```bash
+   git push origin main
+   ```
+   *(If your default branch is `master`, replace `main` with `master`)*
